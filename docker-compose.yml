@@ -1,0 +1,58 @@
+services:
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.3
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    networks: [esnet]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.1.3
+    environment:
+      - ELASTICSEARCH_HOSTS=http://es01:9200
+    ports:
+      - "5601:5601"
+    networks: [esnet]
+    depends_on: [es01]
+
+  pipeline-init:
+    image: curlimages/curl:latest
+    depends_on:
+      es01:
+        condition: service_healthy
+    networks: [esnet]
+    entrypoint: >
+        sh -c "
+        echo 'Creating ingest pipeline...';
+        curl -s -X PUT http://es01:9200/_ingest/pipeline/pricing-pipeline \\
+          -H 'Content-Type: application/json' \\
+          -d '{\"processors\":[{\"script\":{\"source\":\"ctx.price = ctx.price.replace(\\\"$\\\", \\\"\\\")\"}}]}';
+        echo 'Pipeline created!';
+        "
+  crawler:
+    image: docker.elastic.co/integrations/crawler:0.4.2
+    environment:
+      - ES_HOST=http://es01:9200
+      - CRAWLER_JRUBY_OPTS=--server
+    container_name: crawler
+    volumes:
+      - ./config:/home/app/config
+    networks: [esnet]
+    entrypoint: ["/home/app/bin/crawler", "crawl", "/home/app/config/crawl-config-final.yml"]
+    depends_on:
+      pipeline-init:
+        condition: service_completed_successfully
+    stdin_open: true
+    tty: true
+
+networks:
+  esnet:
+    driver: bridge

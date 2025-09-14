@@ -1,0 +1,28 @@
+output_sink: elasticsearch
+output_index: web-crawl-index
+max_crawl_depth: 1
+
+elasticsearch:
+  host: ${ES_HOST}
+  api_key: ${ES_API_KEY}
+     
+  # Index ingest pipeline to process documents before indexing          
+  pipeline_enabled: true
+  pipeline: pricing-pipeline
+
+domains:
+  - url: https://web-scraping.dev
+    seed_urls:
+      - https://web-scraping.dev/product/1
+      - https://web-scraping.dev/product/2
+      - https://web-scraping.dev/product/3
+    extraction_rulesets:
+      - url_filters:
+          - type: ends
+            pattern: /product/*
+        rules:
+          - action: extract
+            field_name: price
+            selector: .product-price
+            join_as: string
+            source: html

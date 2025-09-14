@@ -1,0 +1,39 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  Deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Deploy crawler
+        env:
+          HOSTNAME: ${{ secrets.VM_HOST }}
+          USER_NAME: ${{ secrets.VM_USER }}
+          PRIVATE_KEY: ${{ secrets.VM_KEY }}
+          ES_HOST: ${{ secrets.ES_HOST }}
+          ES_API_KEY: ${{ secrets.ES_API_KEY }}
+        run: |
+          # Save private key
+          echo "$PRIVATE_KEY" > private_key
+          chmod 600 private_key
+
+          # Generate final config locally
+          envsubst < config/crawler-config.yml > config/crawl-config-final.yml
+
+          # Copy the config folder to VM
+          scp -o StrictHostKeyChecking=no -i private_key -r config ${USER_NAME}@${HOSTNAME}:~/config
+
+          # SSH into VM and run crawler
+          ssh -o StrictHostKeyChecking=no -i private_key ${USER_NAME}@${HOSTNAME} << EOF
+            docker run --rm \
+              -v ~/config:/config \
+              docker.elastic.co/integrations/crawler:latest jruby \
+              bin/crawler crawl /config/crawl-config-final.yml
+          EOF
